@@ -1,4 +1,5 @@
-test/
 static/
 gen/
+test/
 proto/
+go-bot
