@@ -26,37 +26,6 @@ var (
 	StaticDataLock sync.RWMutex
 )
 
-func download_data(url string, out_file string, parse func()) {
-	response, err := http.Get(url)
-	if err != nil {
-		log.Fatal("Error downloading update")
-	}
-
-	defer response.Body.Close()
-
-	out, err := os.Create(out_file)
-	if err != nil {
-		log.Fatal("Could not fetch live data")
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, response.Body)
-	if err == nil {
-		os.Rename(out_file, out_file)
-		parse()
-		log.Printf("Refreshed %v\n", out_file)
-	}
-}
-
-func fetch_routine(url string, out_file string, interval time.Duration, parse func()) {
-	ticker := time.NewTicker(interval)
-
-	for {
-		go download_data(url, out_file, parse)
-		<-ticker.C
-	}
-}
-
 func parse_feed() {
 	FeedLock.Lock()
 	defer FeedLock.Unlock()
@@ -78,9 +47,10 @@ func parse_static() {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go parse_stop_names(&wg)
 	go parse_directions(&wg)
+	go parse_stop_times(&wg)
 
 	wg.Wait()
 
@@ -136,6 +106,35 @@ func parse_directions(wg *sync.WaitGroup) {
 	}
 }
 
+const STOP_TIMES_URI = "./static/stop_times.csv"
+
+var STOP_TIMES_MAP map[string][]string = make(map[string][]string, 0)
+
+func parse_stop_times(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	file, err := os.Open(STOP_TIMES_URI)
+	if err != nil {
+		log.Fatal("Could not read directions csv")
+	}
+
+	defer file.Close()
+
+	reader := bufio.NewScanner(file)
+	for reader.Scan() {
+		line := reader.Text()
+		split := strings.Split(line, ",")
+
+		trip_id := split[0]
+		stop_id := split[3]
+
+		val := STOP_TIMES_MAP[trip_id]
+		val = append(val, stop_id)
+		STOP_TIMES_MAP[trip_id] = val
+	}
+
+}
+
 // unzip files to static directory, converted to csv
 func unzip(src string, dest string) error {
 	r, err := zip.OpenReader(src)
@@ -187,6 +186,36 @@ func unzip(src string, dest string) error {
 		}
 	}
 	return nil
+}
+
+func download_data(url string, out_file string, parse func()) {
+	response, err := http.Get(url)
+	if err != nil {
+		log.Fatal("Error downloading update")
+	}
+
+	defer response.Body.Close()
+
+	out, err := os.Create(out_file)
+	if err != nil {
+		log.Fatal("Could not fetch live data")
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, response.Body)
+	if err == nil {
+		parse()
+		log.Printf("Refreshed %v\n", out_file)
+	}
+}
+
+func fetch_routine(url string, out_file string, interval time.Duration, parse func()) {
+	ticker := time.NewTicker(interval)
+
+	for {
+		go download_data(url, out_file, parse)
+		<-ticker.C
+	}
 }
 
 func StartFetching() {
