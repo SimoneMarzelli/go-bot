@@ -18,28 +18,40 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var (
-	UpdateFeed gtfs.FeedMessage
-	FeedLock   sync.RWMutex
+type UpdateFeed struct {
+	update_feed gtfs.FeedMessage
+	lock        sync.Mutex
+}
 
-	StaticData     any
-	StaticDataLock sync.RWMutex
-)
+var FeedData = new(UpdateFeed)
+
+type Static struct {
+	stop_map       map[string]string
+	direction_map  map[string][2]string
+	stop_times_map map[string][]string
+	lock           sync.Mutex
+}
+
+var StaticData = &Static{
+	stop_map:       make(map[string]string, 0),
+	direction_map:  make(map[string][2]string, 0),
+	stop_times_map: make(map[string][]string, 0),
+}
 
 func parse_feed() {
-	FeedLock.Lock()
-	defer FeedLock.Unlock()
+	FeedData.lock.Lock()
+	defer FeedData.lock.Unlock()
 
 	data, err := os.ReadFile(CURRENT_POSITION_URI)
 	if err != nil {
 		log.Fatal("Could not read feed file")
 	}
-	proto.Unmarshal(data, &UpdateFeed)
+	proto.Unmarshal(data, &FeedData.update_feed)
 }
 
 func parse_static() {
-	StaticDataLock.Lock()
-	defer StaticDataLock.Unlock()
+	StaticData.lock.Lock()
+	defer StaticData.lock.Unlock()
 
 	unzip_err := unzip(STATIC_DATA_URI, "./static")
 	if unzip_err != nil {
@@ -56,8 +68,6 @@ func parse_static() {
 
 }
 
-var STOP_MAP map[string]string = make(map[string]string, 0)
-
 func parse_stop_names(wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -73,11 +83,9 @@ func parse_stop_names(wg *sync.WaitGroup) {
 	for reader.Scan() {
 		line := reader.Text()
 		split := strings.Split(line, ",")
-		STOP_MAP[split[0]] = strings.ReplaceAll(split[2], "\"", "")
+		StaticData.stop_map[split[0]] = strings.ReplaceAll(split[2], "\"", "")
 	}
 }
-
-var DIRECTION_MAP map[string][2]string = make(map[string][2]string, 0)
 
 func parse_directions(wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -99,16 +107,14 @@ func parse_directions(wg *sync.WaitGroup) {
 		dir_name := split[3]
 		dir_id, _ := strconv.ParseUint(split[5], 10, 32)
 
-		val := DIRECTION_MAP[route_id]
+		val := StaticData.direction_map[route_id]
 		val[dir_id] = strings.ReplaceAll(dir_name, "\"", "")
-		DIRECTION_MAP[route_id] = val
+		StaticData.direction_map[route_id] = val
 
 	}
 }
 
 const STOP_TIMES_URI = "./static/stop_times.csv"
-
-var STOP_TIMES_MAP map[string][]string = make(map[string][]string, 0)
 
 func parse_stop_times(wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -128,9 +134,9 @@ func parse_stop_times(wg *sync.WaitGroup) {
 		trip_id := split[0]
 		stop_id := split[3]
 
-		val := STOP_TIMES_MAP[trip_id]
+		val := StaticData.stop_times_map[trip_id]
 		val = append(val, stop_id)
-		STOP_TIMES_MAP[trip_id] = val
+		StaticData.stop_times_map[trip_id] = val
 	}
 
 }
@@ -210,11 +216,9 @@ func download_data(url string, out_file string, parse func()) {
 }
 
 func fetch_routine(url string, out_file string, interval time.Duration, parse func()) {
-	ticker := time.NewTicker(interval)
-
 	for {
-		go download_data(url, out_file, parse)
-		<-ticker.C
+		download_data(url, out_file, parse)
+		time.Sleep(interval)
 	}
 }
 

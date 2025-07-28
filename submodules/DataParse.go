@@ -2,24 +2,23 @@ package submodules
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
-
-	"github.com/MobilityData/gtfs-realtime-bindings/golang/gtfs"
-	"google.golang.org/protobuf/proto"
 )
 
 func GetCurrentPosition(route_id string, direction string) ([]string, map[string][]string, error) {
+	var update_feed = FeedData
+	update_feed.lock.Lock()
+	defer update_feed.lock.Unlock()
 
-	data, _ := os.ReadFile(CURRENT_POSITION_URI)
-	var feed gtfs.FeedMessage
-	proto.Unmarshal(data, &feed)
+	var staticData = StaticData
+	staticData.lock.Lock()
+	defer staticData.lock.Unlock()
 
 	var current_stops map[string][]string = make(map[string][]string, 0)
 	var ordered_stop_names []string = make([]string, 0)
 
-	for _, entity := range feed.Entity {
+	for _, entity := range update_feed.update_feed.Entity {
 		vehicle_info := entity.Vehicle
 
 		if vehicle_info.Trip.GetRouteId() != route_id {
@@ -27,18 +26,18 @@ func GetCurrentPosition(route_id string, direction string) ([]string, map[string
 		}
 
 		direction_id := uint64(vehicle_info.Trip.GetDirectionId())
-		direction_name := DIRECTION_MAP[route_id][direction_id]
-		if direction != strconv.FormatUint(direction_id, 10) || !strings.Contains(strings.ToLower(direction_name), strings.ToLower(direction_name)) {
+		direction_name := staticData.direction_map[route_id][direction_id]
+		if direction != strconv.FormatUint(direction_id, 10) && !strings.Contains(strings.ToLower(direction_name), strings.ToLower(direction)) {
 			continue
 		}
 
-		trip_stops := STOP_TIMES_MAP[vehicle_info.Trip.GetTripId()]
+		trip_stops := staticData.stop_times_map[vehicle_info.Trip.GetTripId()]
 
-		current_stop_name := STOP_MAP[vehicle_info.GetStopId()]
+		current_stop_name := staticData.stop_map[vehicle_info.GetStopId()]
 		current_stop_status := vehicle_info.GetCurrentStatus()
 
 		for _, stop_id := range trip_stops {
-			stop_name := STOP_MAP[stop_id]
+			stop_name := staticData.stop_map[stop_id]
 
 			if len(ordered_stop_names) != len(trip_stops) {
 				ordered_stop_names = append(ordered_stop_names, stop_name)
@@ -56,15 +55,19 @@ func GetCurrentPosition(route_id string, direction string) ([]string, map[string
 			}
 		}
 	}
-	fmt.Println(ordered_stop_names)
+
 	return ordered_stop_names, current_stops, nil
 }
 
 func GetLineInfo(route_id string) ([]string, error) {
-	directions, ok := DIRECTION_MAP[route_id]
+	var staticData = StaticData
+	staticData.lock.Lock()
+	defer staticData.lock.Unlock()
+
+	directions, ok := staticData.direction_map[route_id]
 	if ok {
 		return directions[:], nil
 	}
 
-	return nil, fmt.Errorf("Route %v does not exist", route_id)
+	return nil, fmt.Errorf("route %v does not exist", route_id)
 }
