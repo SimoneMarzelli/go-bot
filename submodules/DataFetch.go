@@ -38,6 +38,18 @@ var StaticData = &Static{
 	stop_times_map: make(map[string][]string, 0),
 }
 
+const (
+	CURRENT_POSITION_URI = "proto/rome_rtgtfs_vehicle_positions_feed.pb"
+	CURRENT_POSITION_URL = "https://romamobilita.it/sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb"
+
+	STATIC_DATA_URL = "https://romamobilita.it/sites/default/files/rome_static_gtfs.zip"
+	STATIC_DATA_URI = "static/rome_static_gtfs.zip"
+
+	STOPS_CSV_URI      = "./static/stops.csv"
+	DIRECTIONS_CSV_URI = "./static/trips.csv"
+	STOP_TIMES_URI     = "./static/stop_times.csv"
+)
+
 func parse_feed() {
 	FeedData.lock.Lock()
 	defer FeedData.lock.Unlock()
@@ -113,8 +125,6 @@ func parse_directions(wg *sync.WaitGroup) {
 
 	}
 }
-
-const STOP_TIMES_URI = "./static/stop_times.csv"
 
 func parse_stop_times(wg *sync.WaitGroup) {
 	defer wg.Done()
