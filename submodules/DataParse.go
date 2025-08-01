@@ -2,11 +2,16 @@ package submodules
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
-func GetCurrentPosition(route_id string, direction string) ([]string, map[string][]string, error) {
+type StopUpdate struct {
+	Name         string
+	Status       []string
+	ArrivalTimes []string
+}
+
+func GetCurrentPosition(route_id string, direction string) ([]StopUpdate, error) {
 	var update_feed = FeedData
 	update_feed.lock.Lock()
 	defer update_feed.lock.Unlock()
@@ -15,9 +20,25 @@ func GetCurrentPosition(route_id string, direction string) ([]string, map[string
 	staticData.lock.Lock()
 	defer staticData.lock.Unlock()
 
-	var current_stops map[string][]string = make(map[string][]string, 0)
-	var ordered_stop_names []string = make([]string, 0)
+	directions_map, ok := staticData.total_map[route_id]
+	if !ok {
+		return nil, fmt.Errorf("route non recognized")
+	}
 
+	var trips map[string][]StopInfo
+
+	for key_dir, v := range directions_map {
+		if key_dir.id == direction || strings.Contains(strings.ToLower(key_dir.name), strings.ToLower(direction)) {
+			trips = v
+			break
+		}
+	}
+
+	if len(trips) == 0 {
+		return nil, fmt.Errorf("unrecognized direction")
+	}
+
+	var ret []StopUpdate
 	for _, entity := range update_feed.update_feed.Entity {
 		vehicle_info := entity.Vehicle
 
@@ -25,38 +46,29 @@ func GetCurrentPosition(route_id string, direction string) ([]string, map[string
 			continue
 		}
 
-		direction_id := uint64(vehicle_info.Trip.GetDirectionId())
-		direction_name := staticData.direction_map[route_id][direction_id]
-		if direction != strconv.FormatUint(direction_id, 10) && !strings.Contains(strings.ToLower(direction_name), strings.ToLower(direction)) {
-			continue
-		}
+		trip_id := vehicle_info.Trip.GetTripId()
+		current_status := vehicle_info.GetCurrentStatus()
+		current_stop := staticData.stop_map[vehicle_info.GetStopId()]
 
-		trip_stops := staticData.stop_times_map[vehicle_info.Trip.GetTripId()]
+		trip_stops := trips[trip_id]
 
-		current_stop_name := staticData.stop_map[vehicle_info.GetStopId()]
-		current_stop_status := vehicle_info.GetCurrentStatus()
-
-		for _, stop_id := range trip_stops {
-			stop_name := staticData.stop_map[stop_id]
-
-			if len(ordered_stop_names) != len(trip_stops) {
-				ordered_stop_names = append(ordered_stop_names, stop_name)
+		for idx, trip_stop := range trip_stops {
+			if idx == len(ret) {
+				ret = append(ret, StopUpdate{
+					Name:         trip_stop.name,
+					ArrivalTimes: []string{},
+					Status:       []string{},
+				})
 			}
 
-			stop_info, ok := current_stops[stop_name]
-
-			if !ok {
-				current_stops[stop_name] = []string{}
-			}
-
-			if current_stop_name == stop_name {
-				stop_info = append(stop_info, current_stop_status.String())
-				current_stops[stop_name] = stop_info
+			ret[idx].ArrivalTimes = append(ret[idx].ArrivalTimes, trip_stop.arrival_time)
+			if trip_stop.name == current_stop {
+				ret[idx].Status = append(ret[idx].Status, current_status.String())
 			}
 		}
+
 	}
-
-	return ordered_stop_names, current_stops, nil
+	return ret, nil
 }
 
 func GetLineInfo(route_id string) ([]string, error) {
@@ -64,9 +76,18 @@ func GetLineInfo(route_id string) ([]string, error) {
 	staticData.lock.Lock()
 	defer staticData.lock.Unlock()
 
-	directions, ok := staticData.direction_map[route_id]
+	directions, ok := staticData.total_map[route_id]
 	if ok {
-		return directions[:], nil
+
+		keys := make([]string, len(directions))
+
+		i := 0
+		for k := range directions {
+			keys[i] = k.name
+			i++
+		}
+
+		return keys, nil
 	}
 
 	return nil, fmt.Errorf("route %v does not exist", route_id)

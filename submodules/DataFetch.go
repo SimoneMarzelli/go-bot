@@ -26,16 +26,16 @@ type UpdateFeed struct {
 var FeedData = new(UpdateFeed)
 
 type Static struct {
-	stop_map       map[string]string
-	direction_map  map[string][2]string
-	stop_times_map map[string][]string
-	lock           sync.Mutex
+	stop_map             map[string]string
+	trip_id_to_stops_map map[string][]StopInfo
+	lock                 sync.Mutex
+	total_map            map[string]map[Direction]map[string][]StopInfo
 }
 
 var StaticData = &Static{
-	stop_map:       make(map[string]string, 0),
-	direction_map:  make(map[string][2]string, 0),
-	stop_times_map: make(map[string][]string, 0),
+	stop_map:             make(map[string]string, 0),
+	trip_id_to_stops_map: make(map[string][]StopInfo, 0),
+	total_map:            make(map[string]map[Direction]map[string][]StopInfo),
 }
 
 const (
@@ -45,9 +45,9 @@ const (
 	STATIC_DATA_URL = "https://romamobilita.it/sites/default/files/rome_static_gtfs.zip"
 	STATIC_DATA_URI = "static/rome_static_gtfs.zip"
 
-	STOPS_CSV_URI      = "./static/stops.csv"
-	DIRECTIONS_CSV_URI = "./static/trips.csv"
-	STOP_TIMES_URI     = "./static/stop_times.csv"
+	STOPS_URI      = "./static/stops.csv"
+	TRIPS_URI      = "./static/trips.csv"
+	STOP_TIMES_URI = "./static/stop_times.csv"
 )
 
 func parse_feed() {
@@ -61,6 +61,11 @@ func parse_feed() {
 	proto.Unmarshal(data, &FeedData.update_feed)
 }
 
+type Direction struct {
+	id   string
+	name string
+}
+
 func parse_static() {
 	StaticData.lock.Lock()
 	defer StaticData.lock.Unlock()
@@ -70,64 +75,75 @@ func parse_static() {
 		log.Fatal("Error unzipping")
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go parse_stop_names(&wg)
-	go parse_directions(&wg)
-	go parse_stop_times(&wg)
+	parse_stop_names()
 
-	wg.Wait()
+	parse_stop_times()
+	parse_trips()
 
 }
 
-func parse_stop_names(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	file, err := os.Open(STOPS_CSV_URI)
+func parse_stop_names() {
+	stops, err := os.Open(STOPS_URI)
 	if err != nil {
-		log.Fatal("Could not read stops csv")
+		log.Fatal("could not read stops")
 	}
 
-	defer file.Close()
+	defer stops.Close()
+	scanner := bufio.NewScanner(stops)
 
-	reader := bufio.NewScanner(file)
-
-	for reader.Scan() {
-		line := reader.Text()
-		split := strings.Split(line, ",")
+	for scanner.Scan() {
+		split := strings.Split(scanner.Text(), ",")
 		StaticData.stop_map[split[0]] = strings.ReplaceAll(split[2], "\"", "")
 	}
 }
 
-func parse_directions(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	file, err := os.Open(DIRECTIONS_CSV_URI)
+func parse_trips() {
+	trips_file, err := os.Open(TRIPS_URI)
 	if err != nil {
-		log.Fatal("Could not read directions csv")
+		log.Fatalln("Error reading trips")
 	}
 
-	defer file.Close()
+	defer trips_file.Close()
 
-	reader := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(trips_file)
 
-	for reader.Scan() {
-		line := reader.Text()
-		split := strings.Split(line, ",")
-
+	for scanner.Scan() {
+		split := strings.Split(scanner.Text(), ",")
 		route_id := split[0]
-		dir_name := split[3]
-		dir_id, _ := strconv.ParseUint(split[5], 10, 32)
 
-		val := StaticData.direction_map[route_id]
-		val[dir_id] = strings.ReplaceAll(dir_name, "\"", "")
-		StaticData.direction_map[route_id] = val
+		trip_id := split[2]
+		direction_name := strings.ReplaceAll(split[3], "\"", "")
+		direction_id := split[5]
 
+		dir_struct := Direction{
+			direction_id,
+			direction_name,
+		}
+
+		_, ok := StaticData.total_map[route_id]
+		if !ok {
+			StaticData.total_map[route_id] = make(map[Direction]map[string][]StopInfo)
+		}
+		trips, ok := StaticData.total_map[route_id][dir_struct]
+		if !ok {
+			StaticData.total_map[route_id][dir_struct] = make(map[string][]StopInfo, 0)
+		}
+		prev_stops, ok := trips[trip_id]
+		if !ok {
+			StaticData.total_map[route_id][dir_struct][trip_id] = make([]StopInfo, 0)
+		}
+		StaticData.total_map[route_id][dir_struct][trip_id] = append(prev_stops, StaticData.trip_id_to_stops_map[trip_id]...)
 	}
 }
 
-func parse_stop_times(wg *sync.WaitGroup) {
-	defer wg.Done()
+type StopInfo struct {
+	id           string
+	name         string
+	arrival_time string
+	sequence     uint64
+}
+
+func parse_stop_times() {
 
 	file, err := os.Open(STOP_TIMES_URI)
 	if err != nil {
@@ -138,17 +154,22 @@ func parse_stop_times(wg *sync.WaitGroup) {
 
 	reader := bufio.NewScanner(file)
 	for reader.Scan() {
-		line := reader.Text()
-		split := strings.Split(line, ",")
+		split := strings.Split(reader.Text(), ",")
 
 		trip_id := split[0]
+
+		arrival_time := split[1]
 		stop_id := split[3]
+		sequence, _ := strconv.ParseUint(split[4], 10, 16)
 
-		val := StaticData.stop_times_map[trip_id]
-		val = append(val, stop_id)
-		StaticData.stop_times_map[trip_id] = val
+		val := StaticData.trip_id_to_stops_map[trip_id]
+		StaticData.trip_id_to_stops_map[trip_id] = append(val, StopInfo{
+			id:           stop_id,
+			name:         StaticData.stop_map[stop_id],
+			arrival_time: arrival_time,
+			sequence:     sequence,
+		})
 	}
-
 }
 
 // unzip files to static directory, converted to csv

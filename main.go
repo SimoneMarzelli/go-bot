@@ -32,7 +32,8 @@ func main() {
 		}
 
 		split := strings.Fields(update.Message.Text)
-		var reply string = "Unrecognized or malformed command"
+		reply := "Unrecognized or malformed command"
+		escape := false
 
 		switch split[0] {
 		case "/info":
@@ -40,7 +41,7 @@ func main() {
 				reply = "Plase specify the route"
 			} else if directions, err := submodules.GetLineInfo(split[1]); err == nil {
 				reply = fmt.Sprintf(
-					"Choose a direction:\n\t/current %v %v\n\t/current %v %v",
+					"Choose a direction:\n\t`/current %v %v`\n\t`/current %v %v`",
 					split[1], directions[0], split[1], directions[1],
 				)
 			} else {
@@ -49,40 +50,42 @@ func main() {
 		case "/current":
 			if len(split) < 3 {
 				reply = "Please specify both the route and a direction"
-			} else if ordered_stops, positions, err := submodules.GetCurrentPosition(split[1], split[2]); err == nil {
-				var tmp strings.Builder
-
-				for _, stop_name := range ordered_stops {
-					bus_states := positions[stop_name]
-					tmp.WriteString(stop_name)
-					tmp.WriteString(" ")
-
-					for _, bus_state := range bus_states {
-						switch bus_state {
+			} else if updates, err := submodules.GetCurrentPosition(split[1], split[2]); err == nil {
+				var msg strings.Builder
+				for _, update := range updates {
+					msg.WriteString(update.Name)
+					for _, status := range update.Status {
+						var s rune
+						switch status {
 						case "INCOMING_AT":
-							tmp.WriteString("↘")
+							s = '↘'
 						case "STOPPED_AT":
-							tmp.WriteString("⏸")
+							s = '⏸'
 						case "IN_TRANSIT_TO":
-							tmp.WriteString("↗")
+							s = '↗'
 						}
+
+						msg.WriteRune(s)
+						msg.WriteRune(' ')
 					}
-
-					tmp.WriteString("\n")
-
+					msg.WriteString("\n")
 				}
-
-				reply = tmp.String()
+				reply = msg.String()
+				escape = true
 			}
 		}
 
-		send_message(update, *bot, reply)
+		send_message(update, *bot, reply, escape)
 
 	}
 
 }
 
-func send_message(update tgbotapi.Update, bot tgbotapi.BotAPI, text string) {
+func send_message(update tgbotapi.Update, bot tgbotapi.BotAPI, text string, escape bool) {
+	if escape {
+		text = tgbotapi.EscapeText("MarkdownV2", text)
+	}
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+	msg.ParseMode = "Markdownv2"
 	bot.Send(msg)
 }
