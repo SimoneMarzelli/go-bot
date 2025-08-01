@@ -3,3 +3,4 @@ gen/
 test/
 proto/
 go-bot
+.vscode/

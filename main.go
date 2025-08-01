@@ -38,31 +38,31 @@ func main() {
 			var err error
 
 			args := strings.Fields(update.Message.CommandArguments())
-			command_handler, ok := handlers.CommandHandlers[update.Message.Command()]
+			commandHandler, ok := handlers.CommandHandlers[update.Message.Command()]
 
-			defer send_message(update, *bot, &reply, &escape)
+			defer sendMessage(update, *bot, &reply, &escape)
 			if !ok {
 				reply = "Unrecognized command"
 				return
 			}
 
-			if len(args) < int(command_handler.MinimumArguments) {
-				reply = command_handler.NotEnoughParametersErrMsg
+			if len(args) < int(commandHandler.MinimumArguments) {
+				reply = commandHandler.NotEnoughParametersErrMsg
 				return
 			}
 
-			reply, escape, err = command_handler.HandlerFunc(args)
+			reply, escape, err = commandHandler.HandlerFunc(args)
 
 			if err != nil {
 				log.Println(err)
-				reply = capitalize_first_letter(err.Error())
+				reply = capitalizeFirstLetter(err.Error())
 			}
 		}()
 	}
 
 }
 
-func send_message(update tgbotapi.Update, bot tgbotapi.BotAPI, text *string, escape *bool) {
+func sendMessage(update tgbotapi.Update, bot tgbotapi.BotAPI, text *string, escape *bool) {
 	if *escape {
 		*text = tgbotapi.EscapeText("MarkdownV2", *text)
 	}
@@ -71,7 +71,7 @@ func send_message(update tgbotapi.Update, bot tgbotapi.BotAPI, text *string, esc
 	bot.Send(msg)
 }
 
-func capitalize_first_letter(s string) string {
+func capitalizeFirstLetter(s string) string {
 	if s == "" {
 		return ""
 	}

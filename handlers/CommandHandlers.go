@@ -16,16 +16,16 @@ var CommandHandlers = map[string]CommandHandler{
 	"info": {
 		MinimumArguments:          1,
 		NotEnoughParametersErrMsg: "Please specify the route",
-		HandlerFunc:               get_line_info,
+		HandlerFunc:               getLineInfo,
 	},
 	"current": {
 		MinimumArguments:          2,
 		NotEnoughParametersErrMsg: "Please specify both the route and direction",
-		HandlerFunc:               get_current_info,
+		HandlerFunc:               getCurrentInfo,
 	},
 }
 
-func get_line_info(args []string) (string, bool, error) {
+func getLineInfo(args []string) (string, bool, error) {
 
 	directions, err := submodules.GetLineInfo(args[0])
 
@@ -39,7 +39,7 @@ func get_line_info(args []string) (string, bool, error) {
 	), false, nil
 }
 
-func get_current_info(args []string) (string, bool, error) {
+func getCurrentInfo(args []string) (string, bool, error) {
 
 	updates, err := submodules.GetCurrentPosition(args[0], args[1])
 

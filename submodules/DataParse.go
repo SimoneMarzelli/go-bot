@@ -11,24 +11,24 @@ type StopUpdate struct {
 	ArrivalTimes []string
 }
 
-func GetCurrentPosition(route_id string, direction string) ([]StopUpdate, error) {
-	var update_feed = FeedData
-	update_feed.lock.Lock()
-	defer update_feed.lock.Unlock()
+func GetCurrentPosition(routeId string, direction string) ([]StopUpdate, error) {
+	var updateFeed = FeedData
+	updateFeed.lock.Lock()
+	defer updateFeed.lock.Unlock()
 
 	var staticData = StaticData
 	staticData.lock.Lock()
 	defer staticData.lock.Unlock()
 
-	directions_map, ok := staticData.total_map[route_id]
+	directionsMap, ok := staticData.totalMap[routeId]
 	if !ok {
-		return nil, fmt.Errorf("route non recognized")
+		return nil, fmt.Errorf("unrecognized route")
 	}
 
 	var trips map[string][]StopInfo
 
-	for key_dir, v := range directions_map {
-		if key_dir.id == direction || strings.Contains(strings.ToLower(key_dir.name), strings.ToLower(direction)) {
+	for keyDir, v := range directionsMap {
+		if keyDir.id == direction || strings.Contains(strings.ToLower(keyDir.name), strings.ToLower(direction)) {
 			trips = v
 			break
 		}
@@ -39,44 +39,45 @@ func GetCurrentPosition(route_id string, direction string) ([]StopUpdate, error)
 	}
 
 	var ret []StopUpdate
-	for _, entity := range update_feed.update_feed.Entity {
-		vehicle_info := entity.Vehicle
+	for _, entity := range updateFeed.updateFeed.Entity {
+		vehicleInfo := entity.Vehicle
 
-		if vehicle_info.Trip.GetRouteId() != route_id {
+		if vehicleInfo.Trip.GetRouteId() != routeId {
 			continue
 		}
 
-		trip_id := vehicle_info.Trip.GetTripId()
-		current_status := vehicle_info.GetCurrentStatus()
-		current_stop := staticData.stop_map[vehicle_info.GetStopId()]
+		tripId := vehicleInfo.Trip.GetTripId()
+		currentStatus := vehicleInfo.GetCurrentStatus()
+		currentStop := staticData.stopMap[vehicleInfo.GetStopId()]
 
-		trip_stops := trips[trip_id]
+		tripStops := trips[tripId]
 
-		for idx, trip_stop := range trip_stops {
+		for idx, tripStop := range tripStops {
 			if idx == len(ret) {
 				ret = append(ret, StopUpdate{
-					Name:         trip_stop.name,
+					Name:         tripStop.name,
 					ArrivalTimes: []string{},
 					Status:       []string{},
 				})
 			}
 
-			ret[idx].ArrivalTimes = append(ret[idx].ArrivalTimes, trip_stop.arrival_time)
-			if trip_stop.name == current_stop {
-				ret[idx].Status = append(ret[idx].Status, current_status.String())
+			ret[idx].ArrivalTimes = append(ret[idx].ArrivalTimes, tripStop.arrivalTime)
+			if tripStop.name == currentStop {
+				ret[idx].Status = append(ret[idx].Status, currentStatus.String())
 			}
 		}
 
 	}
+
 	return ret, nil
 }
 
-func GetLineInfo(route_id string) ([]string, error) {
+func GetLineInfo(routeId string) ([]string, error) {
 	var staticData = StaticData
 	staticData.lock.Lock()
 	defer staticData.lock.Unlock()
 
-	directions, ok := staticData.total_map[route_id]
+	directions, ok := staticData.totalMap[routeId]
 	if ok {
 
 		keys := make([]string, len(directions))
@@ -90,5 +91,5 @@ func GetLineInfo(route_id string) ([]string, error) {
 		return keys, nil
 	}
 
-	return nil, fmt.Errorf("route %v does not exist", route_id)
+	return nil, fmt.Errorf("route %v does not exist", routeId)
 }
