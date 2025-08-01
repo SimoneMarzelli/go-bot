@@ -1,11 +1,12 @@
 package main
 
 import (
-	"fmt"
+	"go-bot/handlers"
 	"go-bot/submodules"
 	"log"
 	"os"
 	"strings"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -31,61 +32,59 @@ func main() {
 			continue
 		}
 
-		split := strings.Fields(update.Message.Text)
-		reply := "Unrecognized or malformed command"
-		escape := false
+		func() {
+			var escape bool
+			var reply string
+			var err error
 
-		switch split[0] {
-		case "/info":
-			if len(split) < 2 {
-				reply = "Plase specify the route"
-			} else if directions, err := submodules.GetLineInfo(split[1]); err == nil {
-				reply = fmt.Sprintf(
-					"Choose a direction:\n\t`/current %v %v`\n\t`/current %v %v`",
-					split[1], directions[0], split[1], directions[1],
-				)
-			} else {
-				reply = err.Error()
+			args := strings.Fields(update.Message.CommandArguments())
+			command_handler, ok := handlers.CommandHandlers[update.Message.Command()]
+
+			defer send_message(update, *bot, &reply, &escape)
+			if !ok {
+				reply = "Unrecognized command"
+				return
 			}
-		case "/current":
-			if len(split) < 3 {
-				reply = "Please specify both the route and a direction"
-			} else if updates, err := submodules.GetCurrentPosition(split[1], split[2]); err == nil {
-				var msg strings.Builder
-				for _, update := range updates {
-					msg.WriteString(update.Name)
-					for _, status := range update.Status {
-						var s rune
-						switch status {
-						case "INCOMING_AT":
-							s = '↘'
-						case "STOPPED_AT":
-							s = '⏸'
-						case "IN_TRANSIT_TO":
-							s = '↗'
-						}
 
-						msg.WriteRune(s)
-						msg.WriteRune(' ')
-					}
-					msg.WriteString("\n")
-				}
-				reply = msg.String()
-				escape = true
+			if len(args) < int(command_handler.MinimumArguments) {
+				reply = command_handler.NotEnoughParametersErrMsg
+				return
 			}
-		}
 
-		send_message(update, *bot, reply, escape)
+			reply, escape, err = command_handler.HandlerFunc(args)
 
+			if err != nil {
+				log.Println(err)
+				reply = capitalize_first_letter(err.Error())
+			}
+		}()
 	}
 
 }
 
-func send_message(update tgbotapi.Update, bot tgbotapi.BotAPI, text string, escape bool) {
-	if escape {
-		text = tgbotapi.EscapeText("MarkdownV2", text)
+func send_message(update tgbotapi.Update, bot tgbotapi.BotAPI, text *string, escape *bool) {
+	if *escape {
+		*text = tgbotapi.EscapeText("MarkdownV2", *text)
 	}
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, *text)
 	msg.ParseMode = "Markdownv2"
 	bot.Send(msg)
+}
+
+func capitalize_first_letter(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	st := make([]rune, len(s))
+
+	for idx, l := range s {
+		if idx == 0 && unicode.IsLetter(l) {
+			l = unicode.ToUpper(l)
+		}
+		st[idx] = l
+	}
+
+	return string(st)
+
 }
