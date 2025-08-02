@@ -51,6 +51,7 @@ func getCurrentInfo(args []string) (string, bool, error) {
 	for _, update := range updates {
 		msg.WriteString(update.Name)
 		for _, status := range update.Status {
+			fmt.Println(update)
 			var s rune
 			switch status {
 			case "INCOMING_AT":

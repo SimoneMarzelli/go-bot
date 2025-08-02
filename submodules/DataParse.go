@@ -12,9 +12,13 @@ type StopUpdate struct {
 }
 
 func GetCurrentPosition(routeId string, direction string) ([]StopUpdate, error) {
-	var updateFeed = FeedData
-	updateFeed.lock.Lock()
-	defer updateFeed.lock.Unlock()
+	var currentPositions = PositionData
+	currentPositions.lock.Lock()
+	defer currentPositions.lock.Unlock()
+
+	var updateData = UpdateData
+	updateData.lock.Lock()
+	defer updateData.lock.Unlock()
 
 	var staticData = StaticData
 	staticData.lock.Lock()
@@ -39,7 +43,7 @@ func GetCurrentPosition(routeId string, direction string) ([]StopUpdate, error) 
 	}
 
 	var ret []StopUpdate
-	for _, entity := range updateFeed.updateFeed.Entity {
+	for _, entity := range updateData.updateFeed.Entity {
 		vehicleInfo := entity.Vehicle
 
 		if vehicleInfo.Trip.GetRouteId() != routeId {

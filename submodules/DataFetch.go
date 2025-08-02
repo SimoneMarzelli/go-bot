@@ -18,12 +18,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type UpdateFeed struct {
+type CurrentPosition struct {
+	currentPositionFeed gtfs.FeedMessage
+	lock                sync.Mutex
+}
+
+var PositionData = new(CurrentPosition)
+
+type Updates struct {
 	updateFeed gtfs.FeedMessage
 	lock       sync.Mutex
 }
 
-var FeedData = new(UpdateFeed)
+var UpdateData = new(Updates)
 
 type Static struct {
 	stopMap          map[string]string
@@ -42,6 +49,9 @@ const (
 	CURRENT_POSITION_URI = "proto/rome_rtgtfs_vehicle_positions_feed.pb"
 	CURRENT_POSITION_URL = "https://romamobilita.it/sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb"
 
+	UPDATES_URI = "proto/rome_rtgtfs_trip_updates_feed.pb"
+	UPDATES_URL = "https://romamobilita.it/sites/default/files/rome_rtgtfs_trip_updates_feed.pb"
+
 	STATIC_DATA_URL = "https://romamobilita.it/sites/default/files/rome_static_gtfs.zip"
 	STATIC_DATA_URI = "static/rome_static_gtfs.zip"
 
@@ -50,15 +60,26 @@ const (
 	STOP_TIMES_URI = "./static/stop_times.csv"
 )
 
-func parseFeed() {
-	FeedData.lock.Lock()
-	defer FeedData.lock.Unlock()
+func parsePositions() {
+	PositionData.lock.Lock()
+	defer PositionData.lock.Unlock()
 
 	data, err := os.ReadFile(CURRENT_POSITION_URI)
 	if err != nil {
-		log.Fatal("Could not read feed file")
+		log.Fatal("Could not read positions file")
 	}
-	proto.Unmarshal(data, &FeedData.updateFeed)
+	proto.Unmarshal(data, &PositionData.currentPositionFeed)
+}
+
+func parseUpdates() {
+	UpdateData.lock.Lock()
+	defer UpdateData.lock.Unlock()
+
+	data, err := os.ReadFile(UPDATES_URI)
+	if err != nil {
+		log.Fatal("Could not read update file")
+	}
+	proto.Unmarshal(data, &UpdateData.updateFeed)
 }
 
 type Direction struct {
@@ -225,30 +246,29 @@ func unzip(src string, dest string) error {
 	return nil
 }
 
-func downloadData(url string, outFile string, parse func()) {
-	response, err := http.Get(url)
-	if err != nil {
-		log.Fatal("Error downloading update")
-	}
-
-	defer response.Body.Close()
-
-	out, err := os.Create(outFile)
-	if err != nil {
-		log.Fatal("Could not fetch live data")
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, response.Body)
-	if err == nil {
-		parse()
-		log.Printf("Refreshed %v\n", outFile)
-	}
-}
-
 func fetchRoutine(url string, outFile string, interval time.Duration, parse func()) {
 	for {
-		downloadData(url, outFile, parse)
+		func() {
+			response, err := http.Get(url)
+			if err != nil {
+				log.Fatal("Error downloading update")
+			}
+
+			defer response.Body.Close()
+
+			out, err := os.Create(outFile)
+			if err != nil {
+				log.Fatal("Could not fetch live data")
+			}
+			defer out.Close()
+
+			_, err = io.Copy(out, response.Body)
+			if err == nil {
+				parse()
+				log.Printf("Refreshed %v\n", outFile)
+			}
+		}()
+
 		time.Sleep(interval)
 	}
 }
@@ -258,7 +278,14 @@ func StartFetching() {
 		CURRENT_POSITION_URL,
 		CURRENT_POSITION_URI,
 		60*time.Second,
-		parseFeed,
+		parsePositions,
+	)
+
+	go fetchRoutine(
+		UPDATES_URL,
+		UPDATES_URI,
+		60*time.Second,
+		parseUpdates,
 	)
 
 	go fetchRoutine(

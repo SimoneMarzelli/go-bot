@@ -76,13 +76,10 @@ func capitalizeFirstLetter(s string) string {
 		return ""
 	}
 
-	st := make([]rune, len(s))
+	st := []rune(s)
 
-	for idx, l := range s {
-		if idx == 0 && unicode.IsLetter(l) {
-			l = unicode.ToUpper(l)
-		}
-		st[idx] = l
+	if unicode.IsLetter(st[0]) {
+		st[0] = unicode.ToUpper(st[0])
 	}
 
 	return string(st)
