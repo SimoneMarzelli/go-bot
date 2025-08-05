@@ -258,7 +258,7 @@ func fetchRoutine(url string, outFile string, interval time.Duration, parse func
 
 			out, err := os.Create(outFile)
 			if err != nil {
-				log.Fatal("Could not fetch live data")
+				log.Fatal("Could not fetch live data", err)
 			}
 			defer out.Close()
 
@@ -274,6 +274,9 @@ func fetchRoutine(url string, outFile string, interval time.Duration, parse func
 }
 
 func StartFetching() {
+	os.Mkdir("proto", os.ModePerm)
+	os.Mkdir("static", os.ModePerm)
+
 	go fetchRoutine(
 		CURRENT_POSITION_URL,
 		CURRENT_POSITION_URI,

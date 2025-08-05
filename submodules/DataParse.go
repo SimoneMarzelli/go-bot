@@ -43,7 +43,7 @@ func GetCurrentPosition(routeId string, direction string) ([]StopUpdate, error) 
 	}
 
 	var ret []StopUpdate
-	for _, entity := range updateData.updateFeed.Entity {
+	for _, entity := range currentPositions.currentPositionFeed.Entity {
 		vehicleInfo := entity.Vehicle
 
 		if vehicleInfo.Trip.GetRouteId() != routeId {
@@ -85,7 +85,6 @@ func GetLineInfo(routeId string) ([]string, error) {
 	if ok {
 
 		keys := make([]string, len(directions))
-
 		i := 0
 		for k := range directions {
 			keys[i] = k.name

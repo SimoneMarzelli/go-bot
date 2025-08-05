@@ -33,10 +33,13 @@ func getLineInfo(args []string) (string, bool, error) {
 		return "", false, err
 	}
 
-	return fmt.Sprintf(
-		"Choose a direction:\n\t`/current %v %v`\n\t`/current %v %v`",
-		args[0], directions[0], args[0], directions[1],
-	), false, nil
+	var msg strings.Builder
+	msg.WriteString("Choose a direction:")
+	for _, dir := range directions {
+		msg.WriteString(fmt.Sprintf("\n\t`/current %v %v`", args[0], dir))
+	}
+
+	return msg.String(), false, nil
 }
 
 func getCurrentInfo(args []string) (string, bool, error) {
