@@ -3,10 +3,10 @@ package main
 import (
 	"go-bot/handlers"
 	"go-bot/submodules"
+	"go-bot/utils"
 	"log"
 	"os"
 	"strings"
-	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -55,7 +55,7 @@ func main() {
 
 			if err != nil {
 				log.Println(err)
-				reply = capitalizeFirstLetter(err.Error())
+				reply = utils.CapitalizeFirstLetter(err.Error())
 			}
 		}()
 	}
@@ -68,20 +68,8 @@ func sendMessage(update tgbotapi.Update, bot tgbotapi.BotAPI, text *string, esca
 	}
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, *text)
 	msg.ParseMode = "Markdownv2"
-	bot.Send(msg)
-}
-
-func capitalizeFirstLetter(s string) string {
-	if s == "" {
-		return ""
+	_, err := bot.Send(msg)
+	if err != nil {
+		log.Fatalf("Error sending message: %v", err)
 	}
-
-	st := []rune(s)
-
-	if unicode.IsLetter(st[0]) {
-		st[0] = unicode.ToUpper(st[0])
-	}
-
-	return string(st)
-
 }

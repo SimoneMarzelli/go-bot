@@ -1,14 +1,11 @@
 package submodules
 
 import (
-	"archive/zip"
 	"bufio"
-	"fmt"
-	"io"
+	"errors"
+	"go-bot/utils"
 	"log"
-	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,40 +43,48 @@ var StaticData = &Static{
 }
 
 const (
-	CURRENT_POSITION_URI = "proto/rome_rtgtfs_vehicle_positions_feed.pb"
-	CURRENT_POSITION_URL = "https://romamobilita.it/sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb"
+	CurrentPositionUri = "proto/rome_rtgtfs_vehicle_positions_feed.pb"
+	CurrentPositionUrl = "https://romamobilita.it/sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb"
 
-	UPDATES_URI = "proto/rome_rtgtfs_trip_updates_feed.pb"
-	UPDATES_URL = "https://romamobilita.it/sites/default/files/rome_rtgtfs_trip_updates_feed.pb"
+	UpdatesUri = "proto/rome_rtgtfs_trip_updates_feed.pb"
+	UpdatesUrl = "https://romamobilita.it/sites/default/files/rome_rtgtfs_trip_updates_feed.pb"
 
-	STATIC_DATA_URL = "https://romamobilita.it/sites/default/files/rome_static_gtfs.zip"
-	STATIC_DATA_URI = "static/rome_static_gtfs.zip"
+	StaticDataUrl    = "https://romamobilita.it/sites/default/files/rome_static_gtfs.zip"
+	StaticDataUri    = "static/rome_static_gtfs.zip"
+	StaticDataMD5Url = "https://romamobilita.it/sites/default/files/rome_static_gtfs.zip.md5"
 
-	STOPS_URI      = "./static/stops.csv"
-	TRIPS_URI      = "./static/trips.csv"
-	STOP_TIMES_URI = "./static/stop_times.csv"
+	StopsUri     = "./static/stops.csv"
+	TripsUri     = "./static/trips.csv"
+	StopTimesUri = "./static/stop_times.csv"
 )
 
 func parsePositions() {
 	PositionData.lock.Lock()
 	defer PositionData.lock.Unlock()
 
-	data, err := os.ReadFile(CURRENT_POSITION_URI)
+	data, err := os.ReadFile(CurrentPositionUri)
 	if err != nil {
 		log.Fatal("Could not read positions file")
 	}
-	proto.Unmarshal(data, &PositionData.currentPositionFeed)
+
+	err = proto.Unmarshal(data, &PositionData.currentPositionFeed)
+	if err != nil {
+		log.Fatalf("Could not parse positions file: %v", err)
+	}
 }
 
 func parseUpdates() {
 	UpdateData.lock.Lock()
 	defer UpdateData.lock.Unlock()
 
-	data, err := os.ReadFile(UPDATES_URI)
+	data, err := os.ReadFile(UpdatesUri)
 	if err != nil {
 		log.Fatal("Could not read update file")
 	}
-	proto.Unmarshal(data, &UpdateData.updateFeed)
+	err = proto.Unmarshal(data, &UpdateData.updateFeed)
+	if err != nil {
+		log.Fatalf("Could not parse update file: %v", err)
+	}
 }
 
 type Direction struct {
@@ -91,7 +96,7 @@ func parseStatic() {
 	StaticData.lock.Lock()
 	defer StaticData.lock.Unlock()
 
-	unzipErr := unzip(STATIC_DATA_URI, "./static")
+	unzipErr := utils.Unzip(StaticDataUri, "./static")
 	if unzipErr != nil {
 		log.Fatal("Error unzipping")
 	}
@@ -104,12 +109,13 @@ func parseStatic() {
 
 func parseStopNames() {
 
-	stops, err := os.Open(STOPS_URI)
+	stops, err := os.Open(StopsUri)
 	if err != nil {
 		log.Fatal("could not read stops")
 	}
 
-	defer stops.Close()
+	defer utils.HandleFileClose(stops)
+
 	scanner := bufio.NewScanner(stops)
 
 	for scanner.Scan() {
@@ -127,12 +133,12 @@ type StopInfo struct {
 
 func parseStopTimes() {
 
-	file, err := os.Open(STOP_TIMES_URI)
+	file, err := os.Open(StopTimesUri)
 	if err != nil {
 		log.Fatal("Could not read directions csv")
 	}
 
-	defer file.Close()
+	defer utils.HandleFileClose(file)
 
 	reader := bufio.NewScanner(file)
 	for reader.Scan() {
@@ -155,12 +161,12 @@ func parseStopTimes() {
 }
 
 func parseTrips() {
-	tripsFile, err := os.Open(TRIPS_URI)
+	tripsFile, err := os.Open(TripsUri)
 	if err != nil {
 		log.Fatalln("Error reading trips")
 	}
 
-	defer tripsFile.Close()
+	defer utils.HandleFileClose(tripsFile)
 
 	scanner := bufio.NewScanner(tripsFile)
 
@@ -193,108 +199,103 @@ func parseTrips() {
 	}
 }
 
-// unzip files to static directory, converted to csv
-func unzip(src string, dest string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return err
+func fetchRoutine(
+	url string,
+	outFile string,
+	interval time.Duration,
+	refresh func() bool,
+	parse func()) {
+	ticker := time.NewTicker(interval)
+	for {
+		var err error = nil
+		if refresh() {
+			log.Printf("File not updated, redownloading %v...", outFile)
+			err = utils.DownloadFile(url, outFile)
+			if err != nil {
+				continue
+			}
+		}
+
+		log.Printf("File updated, parse %v...", outFile)
+		parse()
+		log.Printf("Refreshed %v\n", outFile)
+
+		<-ticker.C
 	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		filePath := filepath.Join(dest, f.Name)
-
-		// Check for ZipSlip vulnerability
-		if !strings.HasPrefix(filePath, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path: %s", filePath)
-		}
-
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(filePath, os.ModePerm)
-			continue
-		}
-
-		// Make sure directory exists
-		if err = os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
-			return err
-		}
-
-		if s, c := strings.CutSuffix(filePath, ".txt"); c {
-			filePath = s + ".csv"
-		}
-
-		// Create destination file
-		outFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-
-		_, err = io.Copy(outFile, rc)
-
-		outFile.Close()
-		rc.Close()
-
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
-func fetchRoutine(url string, outFile string, interval time.Duration, parse func()) {
-	for {
-		func() {
-			response, err := http.Get(url)
-			if err != nil {
-				log.Fatal("Error downloading update")
-			}
+func initDirs() {
+	err := os.Mkdir("proto", os.ModePerm)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		log.Fatalf("Error creating proto directory: %v", err)
+	}
 
-			defer response.Body.Close()
-
-			out, err := os.Create(outFile)
-			if err != nil {
-				log.Fatal("Could not fetch live data", err)
-			}
-			defer out.Close()
-
-			_, err = io.Copy(out, response.Body)
-			if err == nil {
-				parse()
-				log.Printf("Refreshed %v\n", outFile)
-			}
-		}()
-
-		time.Sleep(interval)
+	err = os.Mkdir("static", os.ModePerm)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		log.Fatalf("Error creating static directory: %v", err)
 	}
 }
 
 func StartFetching() {
-	os.Mkdir("proto", os.ModePerm)
-	os.Mkdir("static", os.ModePerm)
+
+	initDirs()
 
 	go fetchRoutine(
-		CURRENT_POSITION_URL,
-		CURRENT_POSITION_URI,
+		CurrentPositionUrl,
+		CurrentPositionUri,
 		60*time.Second,
+		func() bool {
+			return true
+		},
 		parsePositions,
 	)
 
 	go fetchRoutine(
-		UPDATES_URL,
-		UPDATES_URI,
+		UpdatesUrl,
+		UpdatesUri,
 		60*time.Second,
+		func() bool {
+			return true
+		},
 		parseUpdates,
 	)
 
-	go fetchRoutine(
-		STATIC_DATA_URL,
-		STATIC_DATA_URI,
+	fetchRoutine(
+		StaticDataUrl,
+		StaticDataUri,
 		24*time.Hour,
+		func() bool {
+			hash, err := utils.ReadRemoteFile(StaticDataMD5Url)
+			if err != nil {
+				log.Println("Error reading remote file")
+				return true
+			}
+
+			hashFile, err := os.OpenFile("static/old_hash", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+			defer utils.HandleFileClose(hashFile)
+
+			if err != nil {
+				log.Println("Error reading old hash")
+				return true
+			}
+
+			oldHash := make([]byte, 16)
+			_, err = hashFile.Read(oldHash)
+			if err != nil {
+				return true
+			}
+
+			if string(oldHash) != hash {
+				_, err := hashFile.Write([]byte(hash))
+				if err != nil {
+					log.Fatalf("Could not write to hash file: %v", err)
+				}
+
+				return true
+			}
+
+			return false
+		},
 		parseStatic,
 	)
 }

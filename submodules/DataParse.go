@@ -6,7 +6,7 @@ import (
 )
 
 type StopUpdate struct {
-	Name         string
+	StopName     string
 	Status       []string
 	ArrivalTimes []string
 }
@@ -59,7 +59,7 @@ func GetCurrentPosition(routeId string, direction string) ([]StopUpdate, error) 
 		for idx, tripStop := range tripStops {
 			if idx == len(ret) {
 				ret = append(ret, StopUpdate{
-					Name:         tripStop.name,
+					StopName:     tripStop.name,
 					ArrivalTimes: []string{},
 					Status:       []string{},
 				})
